@@ -1,0 +1,34 @@
+version: "1.0"
+
+platforms:
+- linux/amd64
+# - linux/arm64
+
+profiles:
+  default:
+    runner_base: debian:bullseye
+    runners:
+      python3:
+        packages: [python3]
+        version: [python3, --version]
+      pypy3:
+        packages: [pypy3]
+        version: [pypy3, --version]
+      cpp:
+        packages: [g++]
+        version: [g++, --version]
+      java:
+        packages: [openjdk-11-jdk]
+        version: [java, -version]
+      php:
+        packages: [php]
+        version: [php, --version]
+      haskell:
+        packages: [ghc]
+        version: [ghc, --version]
+      ocamlopt:
+        packages: [ocaml-nox]
+        version: [ocamlopt, --version]
+      pascal:
+        packages: [fp-compiler-3.2.0]
+        version: [echo, '3.2.0']
