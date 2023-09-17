@@ -4,31 +4,44 @@ platforms:
 - linux/amd64
 # - linux/arm64
 
+dockerfile_syntax: docker/dockerfile:1.4
+
+base_image_repo:
+  msg555/source-runner-base
+
 profiles:
   default:
-    runner_base: debian:bullseye
+    runner_source_image: debian:bookworm-slim
     runners:
       python3:
+        enabled: true
         packages: [python3]
         version: [python3, --version]
       pypy3:
+        enabled: false
         packages: [pypy3]
         version: [pypy3, --version]
       cpp:
+        enabled: true
         packages: [g++]
         version: [g++, --version]
       java:
+        enabled: false
         packages: [openjdk-11-jdk]
         version: [java, -version]
       php:
+        enabled: false
         packages: [php]
         version: [php, --version]
       haskell:
+        enabled: false
         packages: [ghc]
         version: [ghc, --version]
       ocamlopt:
+        enabled: false
         packages: [ocaml-nox]
         version: [ocamlopt, --version]
       pascal:
+        enabled: false
         packages: [fp-compiler-3.2.0]
         version: [echo, '3.2.0']

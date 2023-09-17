@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "source": {
+    "library/python": {
+      "3.10": {
+        "linux/amd64": "sha256:17b967fa748a2929eb2682018a9d0e335aeebff3963469e901b67544bd01be49"
+      }
+    },
+    "library/debian": {
+      "bookworm-slim": {
+        "linux/amd64": "sha256:6f9377128fde3e69e251d0b3c5a7f85f6a20b92ecb81708742c1e153a5c9ce3f"
+      }
+    }
+  },
+  "base": {
+    "default": {
+      "base-runner-cpp": {
+        "linux/amd64": {
+          "build_hash": "6d2077b693b907015cad1f446a56ccd49b7e596c45e79689bc474547e462a20f",
+          "image_digest": "sha256:c70864f05582dce763dd94de98a2b46546b6b1bef66f685510a2a82c007b2c42"
+        }
+      },
+      "base-internal-runner": {
+        "linux/amd64": {
+          "build_hash": "d70bf3c0dae2a68b9327bbf9118da5143e20bc0d504d978b577d9eea37d31823",
+          "image_digest": "sha256:58224f0690c7ba465f6aebe553ab20715cf7d12726c4987600b79bce598396b7"
+        }
+      },
+      "base-runner-python3": {
+        "linux/amd64": {
+          "build_hash": "cea7e65b9043b985c37f04dfe057895d4dbbe22a8707b120d62090ac34751b98",
+          "image_digest": "sha256:33f341d7e92251def313f8fe568d6d0467256d787f385fbe6c4da95c9f912911"
+        }
+      },
+      "base-diff-calculator": {
+        "linux/amd64": {
+          "build_hash": "ac8633ded2120e5ce4169e2392d6732e13a6c6b4d159989f80035958e62d6b00",
+          "image_digest": "sha256:53da440061a2af3c2a37713f35e7e8183b96074500c232f51b73dd683b21e975"
+        }
+      },
+      "base-source-runner": {
+        "linux/amd64": {
+          "build_hash": "af34c9709672dbc04da90371bdcfc00f4245753aa904aa11737b93a91e47c1ca",
+          "image_digest": "sha256:57a77184bac8f332ca511c38aad2c3369f88e26f3eaf6ca65179ad4af8a3890f"
+        }
+      },
+      "base-diff-calculator-python3": {
+        "linux/amd64": {
+          "build_hash": "d0798ef317da07ce0293c3a613045301407aaa5d57188c3a13d481a4dc2f6392",
+          "image_digest": "sha256:750e7e954540dc493566925741951b73a79ff1a36cf78b3ec26bf10404236ed5"
+        }
+      },
+      "base-diff-calculator-cpp": {
+        "linux/amd64": {
+          "build_hash": "157c840fe663c41a111c6e35313e0cf6ad97bfa2079679f989a2adcce2faadb6",
+          "image_digest": "sha256:ed46bfd20239e3d703dabb6ee156ddbe5ce9791f7dcf4125bd598f0928dad122"
+        }
+      }
+    }
+  },
+  "hash_salt": "0135e6af-1eaf-4c6c-9437-556235a2d335"
+}

@@ -1,36 +1,95 @@
-FROM python:3.10 AS diff-calculator
+# TODO: In order to run out container rootless we'll need to do a uid shift on 
+# the /runners directory
+
+{% set runners = dict(vars.runners.items() | selectattr("1.enabled")) -%}
+{% macro offset_fs_ids(root, offset, root_id) -%}
+find {{ root | shell_escape }} -exec python3 -c \
+  'import os, sys; p = sys.argv[1]; st = os.lstat(p); os.lchown(p, st.st_uid + {{ offset }} if st.st_uid else {{ root_id }}, st.st_gid + {{ offset }} if st.st_gid else {{ root_id }})' {} ';'
+{%- endmacro %}
+
+###############################################################################
+# Create an internal runner base image. This forms the basis of the environment
+# that tasks will run in. This is just the same as the runner source image with
+# a prebaked user added in.
+FROM {{ vars.runner_source_image }} AS base-internal-runner
+
+RUN groupadd -g 1000 taskrun \
+ && useradd -u 1000 -g 1000 taskrun \
+ && mkdir -p /task \
+ && chown -R taskrun:taskrun /task
+
+
+###############################################################################
+# Install packages needed for each runner variant on top of the internal runner
+# base image.
+{% for runner_name, runner_data in runners.items() -%}
+FROM base-internal-runner AS base-runner-{{ runner_name }}
+
+RUN apt update \
+ && apt install -y {% for package in runner_data.packages %} {{ package | shell_escape }}{% endfor %} \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN {% for arg in runner_data.version %} {{ arg | shell_escape }}{% endfor %} > /version.txt 2>&1
+{% endfor -%}
+
+
+###############################################################################
+# Create an intermediate image that we can use to produce overlay diffs for
+# each of our runner variants. Setup the /lower dir with the source runner image
+FROM python:3.10 AS base-diff-calculator
 
 RUN pip install -U pip \
  && pip install uniondiff
 
-COPY --from={{ vars.runner_base }} / /lower
+COPY --from=base-internal-runner / /lower
+RUN {{ offset_fs_ids("/lower", 100000, 1000) }}
 
 
-FROM {{ vars.runner_base }} AS runner
+###############################################################################
+# Calculate the overlay diff for each runner variant.
+{% for runner_name, runner_data in runners.items() -%}
+FROM base-diff-calculator AS base-diff-calculator-{{ runner_name }}
 
-RUN apt update
+COPY --from=base-runner-{{ runner_name }} / /merged
 
-{% for runner_name, runner_data in vars.runners.items() -%}
-FROM runner AS runner-{{ runner_name }}
-
-RUN apt install -y {% for package in runner_data.packages %} {{ package | shell_escape }}{% endfor %} \
- && rm -rf /var/lib/apt/lists/*
-
-RUN {% for arg in runner_data.version %} {{ arg | shell_escape }}{% endfor %} > /version.txt 2>&1
-
-FROM diff-calculator AS diff-calculator-{{ runner_name }}
-
-COPY --from=runner-{{ runner_name }} / /merged
-
-RUN uniondiff /merged /lower --output-type tgz > /diff.tgz
+RUN {{ offset_fs_ids("/merged", 100000, 1000) }} \
+ && uniondiff /merged /lower --output-type file -o /diff --preserve-owners
 {% endfor -%}
 
 
-FROM {{ vars.runner_base }} AS source-runner
+###############################################################################
+# Create a base image for the final artifacts. Copy in all the overlay diffs
+# and setup the environment of source runner.
+FROM {{ vars.runner_source_image }} AS base-source-runner
 
 RUN mkdir /runners
 
-{% for runner_name in vars.runners -%}
-COPY --from=diff-calculator-{{ runner_name }} /diff.tgz /runners/{{ runner_name }}.tgz
-COPY --from=runner-{{ runner_name }} /version.txt /runners/{{ runner_name }}.txt
+COPY --from=base-diff-calculator /lower /runners/lower
+
+{% for runner_name in runners -%}
+COPY --from=base-diff-calculator-{{ runner_name }} /diff /runners/{{ runner_name }}
 {% endfor -%}
+
+RUN apt update \
+ && apt install -y runc uidmap vim python3 python3-pip \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 srcrun \
+ && useradd -u 1000 -g 1000 srcrun \
+ && mkdir -p /runnerdata/workspace \
+ && chown -R srcrun:srcrun /runnerdata \
+ && echo 'srcrun:100000:65536' > /etc/subuid \
+ && echo 'srcrun:100000:65536' > /etc/subgid \
+ && chown srcrun:srcrun /runners/*
+
+###############################################################################
+# Top level source-runner image
+FROM base-source-runner AS source-runner
+
+ENV PYTHONPATH=/sourcerunner/sourcerunner
+WORKDIR /sourcerunner
+COPY sourcerunner /sourcerunner/sourcerunner
+
+USER srcrun
+
+ENTRYPOINT ["unshare", "--user", "--mount", "--map-users", "100000,0,65536", "--map-groups", "100000,0,65536"]
