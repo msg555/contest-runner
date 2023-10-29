@@ -1,7 +1,7 @@
 {
 	"ociVersion": "1.0.2-dev",
 	"process": {
-		"terminal": true,
+		"terminal": false,
 		"user": {
 			"uid": 0,
 			"gid": 0
@@ -49,7 +49,7 @@
 		"path": "/",
 		"readonly": true
 	},
-	"hostname": "runc",
+	"hostname": "source-runner",
 	"mounts": [
 		{
 			"destination": "/proc",
@@ -126,6 +126,9 @@
 			]
 		}
 	],
+  "hooks": {
+    "createRuntime": []
+  },
 	"linux": {
 		"resources": {
 			"devices": [
@@ -133,7 +136,19 @@
 					"allow": false,
 					"access": "rwm"
 				}
-			]
+			],
+      "memory": {
+          "limit": 536870912,
+          "reservation": 536870912,
+          "swap": 536870912,
+          "kernel": -1,
+          "kernelTCP": -1,
+          "swappiness": 0,
+          "disableOOMKiller": false
+      },
+      "unified": {
+        "memory.oom.group": "1"
+      }
 		},
 		"namespaces": [
 			{

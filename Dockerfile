@@ -74,13 +74,10 @@ RUN apt update \
  && apt install -y runc uidmap vim python3 python3-pip \
  && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g 1000 srcrun \
- && useradd -u 1000 -g 1000 srcrun \
- && mkdir -p /runnerdata/workspace \
- && chown -R srcrun:srcrun /runnerdata \
- && echo 'srcrun:100000:65536' > /etc/subuid \
- && echo 'srcrun:100000:65536' > /etc/subgid \
- && chown srcrun:srcrun /runners/*
+RUN groupadd -g 1000 taskrun-external \
+ && useradd -u 1000 -g 1000 taskrun-external \
+ && echo 'taskrun-external:100000:65536' > /etc/subuid \
+ && echo 'taskrun-external:100000:65536' > /etc/subgid
 
 ###############################################################################
 # Top level source-runner image
@@ -90,6 +87,6 @@ ENV PYTHONPATH=/sourcerunner/sourcerunner
 WORKDIR /sourcerunner
 COPY sourcerunner /sourcerunner/sourcerunner
 
-USER srcrun
+COPY entrypoint.sh /entrypoint.sh
 
-ENTRYPOINT ["unshare", "--user", "--mount", "--map-users", "100000,0,65536", "--map-groups", "100000,0,65536"]
+ENTRYPOINT ["/entrypoint.sh"]

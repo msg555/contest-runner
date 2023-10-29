@@ -40,8 +40,8 @@
       },
       "base-source-runner": {
         "linux/amd64": {
-          "build_hash": "af34c9709672dbc04da90371bdcfc00f4245753aa904aa11737b93a91e47c1ca",
-          "image_digest": "sha256:57a77184bac8f332ca511c38aad2c3369f88e26f3eaf6ca65179ad4af8a3890f"
+          "build_hash": "46538f2e1832c21dd3fb548563f268547c2cda849be7f3987cdefd46b8b8d321",
+          "image_digest": "sha256:1a7aa5bfd6fd40d3960fb2ec8d770f895818be43297d860db79a146bab3dc80a"
         }
       },
       "base-diff-calculator-python3": {
