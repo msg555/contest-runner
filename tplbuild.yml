@@ -11,7 +11,7 @@ base_image_repo:
 
 profiles:
   default:
-    runner_source_image: debian:bookworm-slim
+    runner_source_image: debian:trixie-slim
     runners:
       python3:
         enabled: true

@@ -1,10 +1,8 @@
-# TODO: In order to run out container rootless we'll need to do a uid shift on 
-# the /runners directory
-
 {% set runners = dict(vars.runners.items() | selectattr("1.enabled")) -%}
 {% macro offset_fs_ids(root, offset, root_id) -%}
 find {{ root | shell_escape }} -exec python3 -c \
   'import os, sys; p = sys.argv[1]; st = os.lstat(p); os.lchown(p, st.st_uid + {{ offset }} if st.st_uid else {{ root_id }}, st.st_gid + {{ offset }} if st.st_gid else {{ root_id }})' {} ';'
+
 {%- endmacro %}
 
 ###############################################################################
@@ -36,7 +34,7 @@ RUN {% for arg in runner_data.version %} {{ arg | shell_escape }}{% endfor %} > 
 ###############################################################################
 # Create an intermediate image that we can use to produce overlay diffs for
 # each of our runner variants. Setup the /lower dir with the source runner image
-FROM python:3.10 AS base-diff-calculator
+FROM python:3.14 AS base-diff-calculator
 
 RUN pip install -U pip \
  && pip install uniondiff
@@ -71,8 +69,12 @@ COPY --from=base-diff-calculator-{{ runner_name }} /diff /runners/{{ runner_name
 {% endfor -%}
 
 RUN apt update \
- && apt install -y runc uidmap vim python3 python3-pip \
+ && apt install -y curl uidmap vim python3 python3-pip sudo \
  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -LO https://github.com/opencontainers/runc/releases/download/v1.3.6/runc.amd64 \
+ && mv runc.amd64 /usr/bin/runc \
+ && chmod +x /usr/bin/runc
 
 RUN groupadd -g 1000 taskrun-external \
  && useradd -u 1000 -g 1000 taskrun-external \
@@ -87,6 +89,10 @@ ENV PYTHONPATH=/sourcerunner/sourcerunner
 WORKDIR /sourcerunner
 COPY sourcerunner /sourcerunner/sourcerunner
 
-COPY entrypoint.sh /entrypoint.sh
+RUN echo 'taskrun-external    ALL=(ALL) NOPASSWD: /init-root.sh' >> /etc/sudoers
+COPY container-scripts /
+
+RUN mkdir /mnt/sourcerunner \
+ && chown taskrun-external:taskrun-external /mnt/sourcerunner
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -1,13 +1,15 @@
 import copy
+import ctypes
 import json
-import tempfile
 import os
-import subprocess
-import uuid
+import select
 import shlex
-
-from typing import Any, Iterable, Mapping, Optional, Dict
-
+import sys
+import subprocess
+import tempfile
+import time
+import uuid
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
@@ -15,17 +17,27 @@ CGROUP_MEMORY_EVENTS = "memory.events"
 
 BASE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "runc-base-config.json")
 
+
+
+
 def get_base_config():
     if BASE_CONFIG is not None:
         return BASE_CONFIG
 
 
 class RuncRunner:
+    IS_SUBREAPER = False
     BASE_CONFIG = None
     DEFAULT_ENV = {
-			"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-			"TERM": "xterm"
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "TERM": "xterm",
     }
+
+    @classmethod
+    def _set_subreaper(cls):
+        if not cls.IS_SUBREAPER:
+            ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)
+            cls.IS_SUBREAPER = True
 
     @classmethod
     def _base_config(cls) -> Any:
@@ -36,30 +48,43 @@ class RuncRunner:
 
     def create_config(self, ctr_id: str) -> Any:
         config = copy.deepcopy(self._base_config())
-        config["process"]["user"] = {
-            "uid": self.uid,
-            "gid": self.gid
-        }
+        config["process"]["user"] = {"uid": self.uid, "gid": self.gid}
         config["process"]["args"] = self.args
-        config["process"]["env"] = [
-            f"{key}={val}" for key, val in self.env.items()
-        ]
+        config["process"]["env"] = [f"{key}={val}" for key, val in self.env.items()]
         config["process"]["cwd"] = self.cwd
 
-        # TODO: set rlimits
-        
+        config["linux"]["resources"]["memory"] = {
+            "limit": self.mem_limit_bytes,
+            "reservation": self.mem_limit_bytes,
+            "swap": self.mem_limit_bytes,
+            "kernel": -1,
+            "kernelTCP": -1,
+            "swappiness": 0,
+            "disableOOMKiller": False,
+        }
+
+        # Fix to max 1 CPU-second/wall-second
+        config["linux"]["resources"]["cpu"] = {
+            "quota": 100000,
+            "period": 100000,
+            "cpus": "1",
+        }
+        config["linux"]["resources"]["pids"] = {
+            "limit": 10000, #self.pid_limit,
+        }
+
         config["root"] = {
             "path": self.fsroot,
             "readonly": False,
         }
 
-        #cgroup_path = os.path.join(CGROUP_ROOT, ctr_id)
-        #config["hooks"]["createRuntime"].append(
+        # cgroup_path = os.path.join(CGROUP_ROOT, ctr_id)
+        # config["hooks"]["createRuntime"].append(
         #    {
         #        "path": "/usr/bin/bash",
         #        "args": ["bash", "-c", f"echo 1 > {shlex.quote(cgroup_path)}/memory.oom.group"]
         #    }
-        #)
+        # )
         return config
 
     def __init__(
@@ -72,6 +97,10 @@ class RuncRunner:
         gid: int = 1000,
         cwd: str = "/task",
         runc_root: str = "/tmp",
+        mem_limit_bytes: int = 2**29,  # 9,
+        pid_limit: int = 64,
+        timeout_cpu: float | None = 10.0,
+        timeout_wall: float | None = 10.0,
     ) -> None:
         self.fsroot = fsroot
         self.args = list(args)
@@ -80,11 +109,13 @@ class RuncRunner:
         self.gid = gid
         self.cwd = cwd
         self.runc_root = runc_root
+        self.mem_limit_bytes = mem_limit_bytes
+        self.pid_limit = pid_limit
+        self.timeout_cpu = timeout_cpu
+        self.timeout_wall = timeout_wall
 
     def run(self) -> None:
-        runc_base_cmd = (
-            "runc", "--rootless=false", f"--root={self.runc_root}"
-        )
+        runc_base_cmd = ("runc", f"--root={self.runc_root}")
         ctr_id = str(uuid.uuid4())
         with tempfile.TemporaryDirectory() as tmp_dir:
             with open(
@@ -92,58 +123,21 @@ class RuncRunner:
             ) as fconfig:
                 json.dump(self.create_config(ctr_id), fconfig)
 
-            print("Container", ctr_id)
+            supervisor_args = []
+            if self.timeout_cpu is not None:
+                supervisor_args.append(f"--timeout-cpu={self.timeout_cpu}")
+            if self.timeout_wall is not None:
+                supervisor_args.append(f"--timeout-wall={self.timeout_wall}")
 
-            # TODO: Specify cpus to pin to one CPU?
-            # linux config info: https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
-            # Can specify seccomp profile, probably should
-            try:
-                result = subprocess.run(
-                    [*runc_base_cmd, "run", "--keep", "--bundle", tmp_dir, ctr_id],
-                )
-
-                print(result)
-
-                mem_peak = self._cgroup_read_scalar(ctr_id, "memory.peak", None)
-                mem_events = self._cgroup_read_dict(ctr_id, "memory.events", {})
-                print("mem_peak", mem_peak)
-                print("mem_events", mem_events)
-                
-                try:
-                    with open(os.path.join(CGROUP_ROOT, ctr_id, "memory.peak"), "r") as fmem:
-                        mem_peak = fmem.read()
-                except FileNotFoundError:
-                    print("could not find memory.peak")
-                else:
-                    print("peak memory", mem_peak)
-            finally:
-                if False:
-                    result = subprocess.run(
-                        [*runc_base_cmd, "delete", ctr_id],
-                    )
-
-    def _cgroup_read_scalar(self, ctr_id: str, key: str, default: Optional[int] = None) -> Optional[int]:
-        try:
-            with open(os.path.join(CGROUP_ROOT, ctr_id, key), "r") as fcg_scalar:
-                return int(fcg_scalar.read().strip())
-        except (IOError, ValueError):
-            LOGGER.warning("Failed to read %s", key, exc_info=True)
-            return default
-
-    def _cgroup_read_dict(
-        self,
-        ctr_id: str,
-        key: str,
-        default: Optional[Dict[str, int]] = None,
-    ) -> Dict[str, int]:
-        try:
-            result = {}
-            with open(os.path.join(CGROUP_ROOT, ctr_id, key), "r") as fcg_dict:
-                for line in fcg_dict:
-                    parts = line.strip().split(" ", 1)
-                    if len(parts) == 2:
-                        result[parts[0]] = int(parts[1])
-            return result
-        except (IOError, ValueError):
-            LOGGER.warning("Failed to read %s", key, exc_info=True)
-            return default
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "sourcerunner.supervisor",
+                    f"--runc_root={self.runc_root}",
+                    tmp_dir,
+                    ctr_id,
+                    *supervisor_args,
+                ],
+                check=True,
+            )

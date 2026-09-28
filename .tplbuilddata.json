@@ -4,11 +4,22 @@
     "library/python": {
       "3.10": {
         "linux/amd64": "sha256:17b967fa748a2929eb2682018a9d0e335aeebff3963469e901b67544bd01be49"
+      },
+      "3.14": {
+        "linux/amd64": "sha256:608322fe51a9b889eee5ed6015c854e77dc44d00c116435f56b69bf6f14c88f4"
       }
     },
     "library/debian": {
       "bookworm-slim": {
         "linux/amd64": "sha256:6f9377128fde3e69e251d0b3c5a7f85f6a20b92ecb81708742c1e153a5c9ce3f"
+      },
+      "trixie-slim": {
+        "linux/amd64": "sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c"
+      }
+    },
+    "library/ubuntu": {
+      "26.04": {
+        "linux/amd64": "sha256:61ebaa5cc23ca45450db85eac015435199ec569e28ec222ea13f2aed2110b8a6"
       }
     }
   },
@@ -16,44 +27,44 @@
     "default": {
       "base-runner-cpp": {
         "linux/amd64": {
-          "build_hash": "6d2077b693b907015cad1f446a56ccd49b7e596c45e79689bc474547e462a20f",
-          "image_digest": "sha256:c70864f05582dce763dd94de98a2b46546b6b1bef66f685510a2a82c007b2c42"
+          "build_hash": "30f41fe507702e47812e69eb48c8e2f4351e76bf00e6686482a56b95e8866ff7",
+          "image_digest": "sha256:fd160ab2de6492cc5ef1457d6c26fd789190fc72b0391d0ece4035bf26d24958"
         }
       },
       "base-internal-runner": {
         "linux/amd64": {
-          "build_hash": "d70bf3c0dae2a68b9327bbf9118da5143e20bc0d504d978b577d9eea37d31823",
-          "image_digest": "sha256:58224f0690c7ba465f6aebe553ab20715cf7d12726c4987600b79bce598396b7"
+          "build_hash": "b936a70fd808360c61504e957c30a89a7ebaca8516f996ab5ee9ae2480ba8d55",
+          "image_digest": "sha256:56602262f7e9a3ec42b960b76adfaa7b91540768ef5613c484fc49f28453d8ed"
         }
       },
       "base-runner-python3": {
         "linux/amd64": {
-          "build_hash": "cea7e65b9043b985c37f04dfe057895d4dbbe22a8707b120d62090ac34751b98",
-          "image_digest": "sha256:33f341d7e92251def313f8fe568d6d0467256d787f385fbe6c4da95c9f912911"
+          "build_hash": "c8c96897d70eb03ce336af79139607ea66581d76dba5b5bf11b746fb45c1a1a0",
+          "image_digest": "sha256:76fd58d39223fad1e095742e13b8220cac81b562b4825bd5d166b5151725e31e"
         }
       },
       "base-diff-calculator": {
         "linux/amd64": {
-          "build_hash": "ac8633ded2120e5ce4169e2392d6732e13a6c6b4d159989f80035958e62d6b00",
-          "image_digest": "sha256:53da440061a2af3c2a37713f35e7e8183b96074500c232f51b73dd683b21e975"
+          "build_hash": "065af612aaee2b9aeb11e338a74af7a073793cbb1a32fd82c6f2116590dcb3a2",
+          "image_digest": "sha256:1dfa73ceaf067fa3859159d0c97bf7ecb08490bac600ab3a18f18d2d90b019f3"
         }
       },
       "base-source-runner": {
         "linux/amd64": {
-          "build_hash": "46538f2e1832c21dd3fb548563f268547c2cda849be7f3987cdefd46b8b8d321",
-          "image_digest": "sha256:1a7aa5bfd6fd40d3960fb2ec8d770f895818be43297d860db79a146bab3dc80a"
+          "build_hash": "f66d45e6ad7c43b961f276735ad5458702614e63078608ce41a3ad2ed007d840",
+          "image_digest": "sha256:acfe4be0dba735dcc8f3db2a6011075d969e9f93dff2544109017e2d4eba367e"
         }
       },
       "base-diff-calculator-python3": {
         "linux/amd64": {
-          "build_hash": "d0798ef317da07ce0293c3a613045301407aaa5d57188c3a13d481a4dc2f6392",
-          "image_digest": "sha256:750e7e954540dc493566925741951b73a79ff1a36cf78b3ec26bf10404236ed5"
+          "build_hash": "4bc885aa29f2570f3f75e7d5868da0dea4e652ecb7591d3a657354540c053c3f",
+          "image_digest": "sha256:e43b9636828b34aff7280c3896ad75997a5a28f23a15fd267c605f818ff6c681"
         }
       },
       "base-diff-calculator-cpp": {
         "linux/amd64": {
-          "build_hash": "157c840fe663c41a111c6e35313e0cf6ad97bfa2079679f989a2adcce2faadb6",
-          "image_digest": "sha256:ed46bfd20239e3d703dabb6ee156ddbe5ce9791f7dcf4125bd598f0928dad122"
+          "build_hash": "d0ebbe37ac75987f3b08780640ed3f7a49eab43ba09605fc5effa26dd9bd27e4",
+          "image_digest": "sha256:723a2d0ee9ebde22bf1a7140acb565776ebd18c2db5275e912344e4f3ad8c91b"
         }
       }
     }
