@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-set -x
-
 set -eo pipefail
-
-id
 
 umount /sys/fs/cgroup
 mount -t cgroup2 none /sys/fs/cgroup

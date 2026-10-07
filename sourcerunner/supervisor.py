@@ -2,7 +2,9 @@ import argparse
 import copy
 import ctypes
 import json
+import functools
 import os
+import sys
 import select
 import shlex
 import subprocess
@@ -134,11 +136,69 @@ def wait_ctr(ctr_id: str, pid: int, timeout_cpu: None | float, timeout_wall: Non
     }
 
 
+def child_setup(fd_remap, fd_opens):
+    # Close all file descriptors we don't need.
+    fd_lo = 0
+    fd_max = os.sysconf("SC_OPEN_MAX")
+    for fd in sorted(fd_remap.values()):
+        if fd > fd_lo:
+            os.closerange(fd_lo, fd)
+        fd_lo = fd + 1
+    os.closerange(fd_lo, fd_max)
 
-def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, timeout_wall: None | float):
-    runc_base_cmd = ("runc", f"--root={runc_root}", "--debug")
+    # Remap free chains
+    done_remaps = set()
+    for fd_to, fd_from in fd_remap.values():
+        if fd_to == fd_from:
+            done_remaps.add(fd_to)
+            continue
+        if fd_to in fd_used:
+            continue
+
+        while True:
+            os.dup2(fd_from, fd_to)
+            os.close(fd_from)
+            done_remaps.add(fd_to)
+
+            fd_to = fd_from
+            fd_from = fd_remap.get(fd_to, -1)
+            if fd_from == -1:
+                break
+
+    # Relax cycles
+    for fd_to, fd_from in fd_remap.values():
+        if fd_to in done_remaps:
+            continue
+
+        fd_from_new = os.dup(fd_from)
+        os.close(fd_from)
+        fd_form = fd_from_new
+
+        fd_to_orig = fd_to
+        while True:
+            os.dup2(fd_from, fd_to)
+            os.close(fd_from)
+            done_remaps.add(fd_to)
+
+            if fd_from == fd_to_orig:
+                break
+            fd_to = fd_from
+            fd_from = fd_remap[fd_to]
+
+    for fd_to, fd_open in sorted(fd_opens.items()):
+        fd = fd_open()
+        if fd != fd_to:
+            os.dup2(fd, fd_to)
+            os.close(fd)
+        else:
+            os.set_inheritable(fd, True)
+
+
+def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, timeout_wall: None | float, fd_remap: dict[int, int], fd_opens: dict[int, Any]):
+    runc_base_cmd = ("runc", f"--root={runc_root}")
 
     pid_file_path = os.path.join(ctr_dir, "ctr.pid")
+
     subprocess.run(
         [
             *runc_base_cmd,
@@ -150,6 +210,8 @@ def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, ti
             ctr_dir,
             ctr_id,
         ],
+        preexec_fn=functools.partial(child_setup, fd_remap, fd_opens),
+        close_fds=False,
         check=True,
     )
     with open(pid_file_path, "r", encoding="utf-8") as fpid:
@@ -185,22 +247,52 @@ def main():
         type=float,
         default=None,
     )
+    parser.add_argument(
+        "--fd-read-file",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--fd-write-file",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--fd-remap",
+        action="append",
+        default=[],
+    )
     args = parser.parse_args()
 
     # Set as process tree subreaper
     ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)
 
+    fd_opens = {}
+    fd_remap = {}
+    for fd_spec in args.fd_read_file:
+        parts = fd_spec.split(":", 1)
+        fd_no = int(parts[0])
+        fd_opens[fd_no] = functools.partial(os.open, parts[1], os.O_RDONLY)
+    for fd_spec in args.fd_write_file:
+        parts = fd_spec.split(":", 1)
+        fd_no = int(parts[0])
+        fd_opens[fd_no] = functools.partial(os.open, parts[1], os.O_WRONLY | os.O_CREAT)
+    for fd_spec in args.fd_remap:
+        parts = fd_spec.split(":", 1)
+        fd_to = int(parts[0])
+        fd_from = int(parts[1])
+        fd_remap[fd_no] = fd_from
+
+    return run(args.runc_root, args.dir, args.ctr_id, args.timeout_cpu, args.timeout_wall, fd_remap, fd_opens)
+
+
+if __name__ == "__main__":
     try:
-        result = run(args.runc_root, args.dir, args.ctr_id, args.timeout_cpu, args.timeout_wall)
+        result = main()
         result["supervisor_success"] = True
     except Exception as exc:
         result = {
             "supervisor_success": False,
             "error": str(exc),
         }
-
     print(json.dumps(result, indent=2))
-
-
-if __name__ == "__main__":
-    main()
