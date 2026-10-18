@@ -1,20 +1,19 @@
 import asyncio
-import re
-import os
-import copy
 import contextlib
+import copy
 import ctypes
+import io
 import json
 import os
-import io
+import re
 import select
 import shlex
-import sys
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
-from typing import Any, Dict, Iterable, Mapping, Optional, BinaryIO
+from typing import Any, BinaryIO, Dict, Iterable, Mapping, Optional
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
@@ -95,8 +94,10 @@ class RuncRunner:
             part_name = parts[3]
             if IGNORE_PARTITION_NAME.match(part_name):
                 continue
-            
-            if not os.path.exists(os.path.join("/sys/class/block", part_name, "partition")):
+
+            if not os.path.exists(
+                os.path.join("/sys/class/block", part_name, "partition")
+            ):
                 result[part_name] = {"major": dev_major, "minor": dev_minor}
 
         cls.DISK_DEVICES = result
@@ -126,7 +127,7 @@ class RuncRunner:
             "cpus": "1",
         }
         config["linux"]["resources"]["pids"] = {
-            "limit": 10000, #self.pid_limit,
+            "limit": 10000,  # self.pid_limit,
         }
 
         io_config = {}
@@ -174,10 +175,10 @@ class RuncRunner:
         pid_limit: int = 64,
         timeout_cpu: float | None = 10.0,
         timeout_wall: float | None = 10.0,
-        io_max_write_bps: int | None = 32 * 2 ** 20,
-        io_max_write_iops: int | None =  1000,
+        io_max_write_bps: int | None = 32 * 2**20,
+        io_max_write_iops: int | None = 1000,
         io_max_read_bps: int | None = None,
-        io_max_read_iops: int | None =  1000,
+        io_max_read_iops: int | None = 1000,
     ) -> None:
         self.fsroot = fsroot
         self.args = list(args)
@@ -238,14 +239,16 @@ class RuncRunner:
                         if 1 <= fd_desc <= 2:
                             # Protect stdout/stderr
                             if nfds[fd_desc] == -1:
-                                nfds[fd_desc] = await exit_stack.enter_async_context(wrap_sync_cm(_dup_fd(1)))
+                                nfds[fd_desc] = await exit_stack.enter_async_context(
+                                    wrap_sync_cm(_dup_fd(1))
+                                )
                             fd_desc = nfds[fd_desc]
                         supervisor_args.append(f"--fd-remap={fd}:{fd_desc}")
-                    case ((str() as path, bool() as write)):
+                    case (str() as path, bool() as write):
                         if write:
-                           supervisor_args.append( f"--fd-write-file={fd}:{path}")
+                            supervisor_args.append(f"--fd-write-file={fd}:{path}")
                         else:
-                           supervisor_args.append( f"--fd-write-file={fd}:{path}")
+                            supervisor_args.append(f"--fd-write-file={fd}:{path}")
 
             if self.timeout_cpu is not None:
                 supervisor_args.append(f"--timeout-cpu={self.timeout_cpu}")
@@ -265,7 +268,7 @@ class RuncRunner:
                     if fd_last != fd:
                         os.closerange(fd_last, fd)
                     fd_last = fd + 1
-                
+
                 fd_max = os.sysconf("SC_OPEN_MAX")
                 os.closerange(fd_last, fd_max)
 
@@ -287,6 +290,6 @@ class RuncRunner:
                 raise subprocess.CalledProcessError(
                     proc.returncode, supervisor_args, output=stdout
                 )
-            sys.stderr.buffer.write(stderr + b'\n')
+            sys.stderr.buffer.write(stderr + b"\n")
 
             return json.loads(stdout)

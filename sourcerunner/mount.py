@@ -1,12 +1,12 @@
 import asyncio
 import contextlib
 import os
-import subprocess
 import shutil
-from tempfile import TemporaryDirectory
-from typing import Optional
+import subprocess
 import uuid
 from contextlib import asynccontextmanager
+from tempfile import TemporaryDirectory
+from typing import Optional
 
 
 class TaskWorkspace:
@@ -32,7 +32,7 @@ class TaskWorkspace:
         self.exit_stack = None
 
     async def add_scratch(
-        self,   
+        self,
         dst_path: str,
         *,
         src_path: str | None = None,
@@ -94,7 +94,9 @@ class TaskWorkspace:
             raise RuntimeError(f"umount exited with code {result}")
 
     @asynccontextmanager
-    async def _mount_scratch(self, src_path: str, dst_path: str, read_only: bool) -> None:
+    async def _mount_scratch(
+        self, src_path: str, dst_path: str, read_only: bool
+    ) -> None:
         if dst_path.startswith("/"):
             dst_path = dst_path[1:]
         dst_path = os.path.join(self.mount_dir, dst_path)

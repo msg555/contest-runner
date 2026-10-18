@@ -1,13 +1,13 @@
 import argparse
 import copy
 import ctypes
-import json
 import functools
+import json
 import os
-import sys
 import select
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -24,6 +24,7 @@ def cgroup_kill(ctr_id: str) -> None:
             fkill.write("1")
     except (IOError, ValueError):
         LOGGER.warning("Failed to kill cgroup %s", ctr_id, exc_info=True)
+
 
 def cgroup_read_scalar(
     ctr_id: str, key: str, default: Optional[int] = None
@@ -54,7 +55,9 @@ def cgroup_read_dict(
         return default
 
 
-def wait_ctr(ctr_id: str, pid: int, timeout_cpu: None | float, timeout_wall: None | float):
+def wait_ctr(
+    ctr_id: str, pid: int, timeout_cpu: None | float, timeout_wall: None | float
+):
     time_start = time.perf_counter()
     ep = select.epoll()
     pid_fd = os.pidfd_open(pid)
@@ -79,9 +82,7 @@ def wait_ctr(ctr_id: str, pid: int, timeout_cpu: None | float, timeout_wall: Non
                 break
 
             if timeout_wall is not None:
-                wall_time_rem = timeout_wall - (
-                    time.perf_counter() - time_start
-                )
+                wall_time_rem = timeout_wall - (time.perf_counter() - time_start)
                 if wall_time_rem < 0:
                     kill_reason = "TIMEOUT_WALL"
                     break
@@ -195,18 +196,31 @@ def child_setup(fd_remap, fd_opens):
             os.set_inheritable(fd, True)
 
 
-def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, timeout_wall: None | float, fd_remap: dict[int, int], fd_opens: dict[int, Any]):
+def run(
+    runc_root: str,
+    ctr_dir: str,
+    ctr_id: str,
+    timeout_cpu: None | float,
+    timeout_wall: None | float,
+    fd_remap: dict[int, int],
+    fd_opens: dict[int, Any],
+):
     runc_base_cmd = ("runc", f"--root={runc_root}")
 
     pid_file_path = os.path.join(ctr_dir, "ctr.pid")
 
     env = dict(os.environ)
     env["LISTEN_FDS"] = "0"
-    preserve_fds = max((
-        2,
-        max(fd_remap, default=0),
-        max(fd_opens, default=0),
-    )) - 2
+    preserve_fds = (
+        max(
+            (
+                2,
+                max(fd_remap, default=0),
+                max(fd_opens, default=0),
+            )
+        )
+        - 2
+    )
     subprocess.run(
         [
             *runc_base_cmd,
@@ -298,7 +312,15 @@ def main():
 
     sys.stderr.write(json.dumps(fd_remap, indent=2))
 
-    return run(args.runc_root, args.dir, args.ctr_id, args.timeout_cpu, args.timeout_wall, fd_remap, fd_opens)
+    return run(
+        args.runc_root,
+        args.dir,
+        args.ctr_id,
+        args.timeout_cpu,
+        args.timeout_wall,
+        fd_remap,
+        fd_opens,
+    )
 
 
 if __name__ == "__main__":
