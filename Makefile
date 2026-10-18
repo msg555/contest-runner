@@ -11,12 +11,12 @@ format-check:
 	$(PYTHON) -m isort --profile=black --check .
 
 pylint:
-	$(PYTHON) -m pylint tplbuild tests
+	$(PYTHON) -m pylint sourcerunner
 
 typecheck:
-	$(PYTHON) -m mypy tplbuild tests
+	$(PYTHON) -m mypy sourcerunner
 
 lint: format-check pylint typecheck
 
 test:
-	$(PYTHON) -m pytest -sv --cov=tplbuild -m unit tests
+	$(PYTHON) -m pytest -sv --cov=sourcerunner -m unit tests

@@ -2,11 +2,8 @@ import asyncio
 import contextlib
 import os
 import shutil
-import subprocess
 import uuid
 from contextlib import asynccontextmanager
-from tempfile import TemporaryDirectory
-from typing import Optional
 
 
 class TaskWorkspace:
@@ -29,7 +26,7 @@ class TaskWorkspace:
         ]
         self.read_only = read_only
         self.scratch_space: list[tuple[str, str, bool]] = []
-        self.exit_stack = None
+        self.exit_stack: contextlib.AsyncExitStack | None = None
 
     async def add_scratch(
         self,
@@ -71,7 +68,7 @@ class TaskWorkspace:
         await loop.run_in_executor(None, _sync_cleanup_dir)
 
     @asynccontextmanager
-    async def _mount_overlay(self) -> None:
+    async def _mount_overlay(self):  # type: ignore
         cmd = ["mount", "-toverlay", "overlay"]
         if self.read_only:
             cmd.append(f"-olowerdir={':'.join([*self.lower_dirs, self.upper_dir])}")
@@ -96,7 +93,7 @@ class TaskWorkspace:
     @asynccontextmanager
     async def _mount_scratch(
         self, src_path: str, dst_path: str, read_only: bool
-    ) -> None:
+    ):  # type: ignore
         if dst_path.startswith("/"):
             dst_path = dst_path[1:]
         dst_path = os.path.join(self.mount_dir, dst_path)

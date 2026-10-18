@@ -1,50 +1,51 @@
 import argparse
-import copy
 import ctypes
 import functools
 import json
+import logging
 import os
 import select
-import shlex
 import subprocess
 import sys
-import tempfile
 import time
-import uuid
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
 CGROUP_MEMORY_EVENTS = "memory.events"
 
+LOGGER = logging.getLogger(__name__)
+
 
 def cgroup_kill(ctr_id: str) -> None:
     try:
-        with open(os.path.join(CGROUP_ROOT, ctr_id, "cgroup.kill"), "w") as fkill:
-            fkill.write("1")
+        with open(os.path.join(CGROUP_ROOT, ctr_id, "cgroup.kill"), "wb") as fkill:
+            fkill.write(b"1")
     except (IOError, ValueError):
         LOGGER.warning("Failed to kill cgroup %s", ctr_id, exc_info=True)
 
 
-def cgroup_read_scalar(
-    ctr_id: str, key: str, default: Optional[int] = None
-) -> Optional[int]:
+def cgroup_read_scalar(ctr_id: str, key: str, default: int | None = None) -> int:
     try:
-        with open(os.path.join(CGROUP_ROOT, ctr_id, key), "r") as fcg_scalar:
+        with open(os.path.join(CGROUP_ROOT, ctr_id, key), "rb") as fcg_scalar:
             return int(fcg_scalar.read().strip())
     except (IOError, ValueError):
         LOGGER.warning("Failed to read %s", key, exc_info=True)
+        if default is None:
+            raise
         return default
 
 
 def cgroup_read_dict(
     ctr_id: str,
     key: str,
-    default: Optional[Dict[str, int]] = None,
-) -> Dict[str, int]:
+    default: dict[str, int] | None = None,
+) -> dict[str, int]:
     try:
         result = {}
-        with open(os.path.join(CGROUP_ROOT, ctr_id, key), "r") as fcg_dict:
+        with open(
+            os.path.join(CGROUP_ROOT, ctr_id, key), "r", encoding="utf-8"
+        ) as fcg_dict:
             for line in fcg_dict:
                 parts = line.strip().split(" ", 1)
                 if len(parts) == 2:
@@ -52,6 +53,8 @@ def cgroup_read_dict(
         return result
     except (IOError, ValueError):
         LOGGER.warning("Failed to read %s", key, exc_info=True)
+        if default is None:
+            raise
         return default
 
 
@@ -99,6 +102,7 @@ def wait_ctr(
         if kill_reason:
             cgroup_kill(ctr_id)
         st = os.waitid(os.P_PIDFD, pid_fd, os.WEXITED)
+        assert st is not None
         os.close(pid_fd)
         ep.close()
 
@@ -108,8 +112,8 @@ def wait_ctr(
     mem_peak = cgroup_read_scalar(ctr_id, "memory.peak", None)
     mem_events = cgroup_read_dict(ctr_id, "memory.events", {})
 
-    exit_status = None
-    signal = None
+    exit_status: int | None = None
+    signal: int | None = None
     if kill_reason:
         exit_type = "killed"
     elif st.si_code == os.CLD_EXITED:
@@ -174,7 +178,7 @@ def child_setup(fd_remap, fd_opens):
 
         fd_from_new = os.dup(fd_from)
         os.close(fd_from)
-        fd_form = fd_from_new
+        fd_from = fd_from_new
 
         fd_to_orig = fd_to
         while True:
@@ -243,7 +247,7 @@ def run(
 
     with open(pid_file_path, "r", encoding="utf-8") as fpid:
         pid = int(fpid.read().strip())
-    result = subprocess.run(
+    subprocess.run(
         [*runc_base_cmd, "start", ctr_id],
         check=True,
     )
@@ -251,12 +255,13 @@ def run(
     try:
         return wait_ctr(ctr_id, pid, timeout_cpu, timeout_wall)
     finally:
-        result = subprocess.run(
+        subprocess.run(
             [*runc_base_cmd, "delete", "-f", ctr_id],
+            check=True,
         )
 
 
-def main():
+def run_supervisor():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--runc_root",
@@ -323,13 +328,17 @@ def main():
     )
 
 
-if __name__ == "__main__":
+def main():
     try:
-        result = main()
+        result = run_supervisor()
         result["supervisor_success"] = True
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         result = {
             "supervisor_success": False,
             "error": str(exc),
         }
     print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

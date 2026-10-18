@@ -2,18 +2,14 @@ import asyncio
 import contextlib
 import copy
 import ctypes
-import io
 import json
 import os
 import re
-import select
-import shlex
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
-from typing import Any, BinaryIO, Dict, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
@@ -26,7 +22,7 @@ IGNORE_PARTITION_NAME = re.compile(r"^(loop|ram|zram|sr|nbd|fd)\d+$")
 
 
 @contextlib.contextmanager
-def _dup_fd(fd: int) -> int:
+def _dup_fd(fd: int):
     nfd = -1
     try:
         nfd = os.dup(fd)
@@ -103,7 +99,7 @@ class RuncRunner:
         cls.DISK_DEVICES = result
         return result
 
-    def create_config(self, ctr_id: str) -> Any:
+    def create_config(self) -> Any:
         config = copy.deepcopy(self._base_config())
         config["process"]["user"] = {"uid": self.uid, "gid": self.gid}
         config["process"]["args"] = self.args
@@ -166,7 +162,7 @@ class RuncRunner:
         fsroot: str,
         *,
         args: Iterable[str],
-        env: Mapping[str, str] = None,
+        env: Mapping[str, str] | None = None,
         uid: int = 1000,
         gid: int = 1000,
         cwd: str = "/task",
@@ -182,7 +178,7 @@ class RuncRunner:
     ) -> None:
         self.fsroot = fsroot
         self.args = list(args)
-        self.env = self.DEFAULT_ENV | (env or {})
+        self.env = self.DEFAULT_ENV | dict(env or {})
         self.uid = uid
         self.gid = gid
         self.cwd = cwd
@@ -208,7 +204,6 @@ class RuncRunner:
         fd_map.setdefault(1, 1)
         fd_map.setdefault(2, 2)
 
-        runc_base_cmd = ("runc", f"--root={self.runc_root}")
         ctr_id = str(uuid.uuid4())
         async with contextlib.AsyncExitStack() as exit_stack:
             tmp_dir = await exit_stack.enter_async_context(
@@ -219,7 +214,7 @@ class RuncRunner:
                 with open(
                     os.path.join(tmp_dir, "config.json"), "w", encoding="utf-8"
                 ) as fconfig:
-                    json.dump(self.create_config(ctr_id), fconfig)
+                    json.dump(self.create_config(), fconfig)
 
             await asyncio.get_running_loop().run_in_executor(None, _sync_write_config)
 
@@ -288,7 +283,7 @@ class RuncRunner:
 
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(
-                    proc.returncode, supervisor_args, output=stdout
+                    proc.returncode, supervisor_args, output=stdout  # type: ignore
                 )
             sys.stderr.buffer.write(stderr + b"\n")
 
