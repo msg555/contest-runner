@@ -148,7 +148,8 @@ def child_setup(fd_remap, fd_opens):
 
     # Remap free chains
     done_remaps = set()
-    for fd_to, fd_from in fd_remap.values():
+    fd_used = set(fd_remap.values())
+    for fd_to, fd_from in fd_remap.items():
         if fd_to == fd_from:
             done_remaps.add(fd_to)
             continue
@@ -166,7 +167,7 @@ def child_setup(fd_remap, fd_opens):
                 break
 
     # Relax cycles
-    for fd_to, fd_from in fd_remap.values():
+    for fd_to, fd_from in fd_remap.items():
         if fd_to in done_remaps:
             continue
 
@@ -199,6 +200,13 @@ def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, ti
 
     pid_file_path = os.path.join(ctr_dir, "ctr.pid")
 
+    env = dict(os.environ)
+    env["LISTEN_FDS"] = "0"
+    preserve_fds = max((
+        2,
+        max(fd_remap, default=0),
+        max(fd_opens, default=0),
+    )) - 2
     subprocess.run(
         [
             *runc_base_cmd,
@@ -206,14 +214,19 @@ def run(runc_root: str, ctr_dir: str, ctr_id: str, timeout_cpu: None | float, ti
             "--no-new-keyring",
             "--pid-file",
             pid_file_path,
+            f"--preserve-fds={preserve_fds}",
             "--bundle",
             ctr_dir,
             ctr_id,
         ],
+        env=env,
         preexec_fn=functools.partial(child_setup, fd_remap, fd_opens),
         close_fds=False,
         check=True,
     )
+    for fd in fd_remap.values():
+        os.close(fd)
+
     with open(pid_file_path, "r", encoding="utf-8") as fpid:
         pid = int(fpid.read().strip())
     result = subprocess.run(
@@ -281,7 +294,9 @@ def main():
         parts = fd_spec.split(":", 1)
         fd_to = int(parts[0])
         fd_from = int(parts[1])
-        fd_remap[fd_no] = fd_from
+        fd_remap[fd_to] = fd_from
+
+    sys.stderr.write(json.dumps(fd_remap, indent=2))
 
     return run(args.runc_root, args.dir, args.ctr_id, args.timeout_cpu, args.timeout_wall, fd_remap, fd_opens)
 

@@ -1,9 +1,12 @@
+import asyncio
 import re
 import os
 import copy
+import contextlib
 import ctypes
 import json
 import os
+import io
 import select
 import shlex
 import sys
@@ -11,7 +14,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional, BinaryIO
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
@@ -22,6 +25,26 @@ BASE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "runc-base-config.jso
 
 IGNORE_PARTITION_NAME = re.compile(r"^(loop|ram|zram|sr|nbd|fd)\d+$")
 
+
+@contextlib.contextmanager
+def _dup_fd(fd: int) -> int:
+    nfd = -1
+    try:
+        nfd = os.dup(fd)
+        os.set_inheritable(nfd, True)
+        yield nfd
+    finally:
+        if nfd != -1:
+            os.close(nfd)
+
+
+@contextlib.asynccontextmanager
+async def wrap_sync_cm(cm):
+    loop = asyncio.get_running_loop()
+    try:
+        yield await loop.run_in_executor(None, cm.__enter__)
+    finally:
+        await loop.run_in_executor(None, cm.__exit__, *sys.exc_info())
 
 
 class RuncRunner:
@@ -172,41 +195,98 @@ class RuncRunner:
         self.io_max_write_bps = io_max_write_bps
         self.io_max_write_iops = io_max_write_iops
 
-    def run(self) -> None:
+    async def run(
+        self,
+        *,
+        fd_map: dict[int, int | tuple[str, bool]] | None = None,
+        close_fds: Iterable[int] = (),
+    ):
+        if fd_map is None:
+            fd_map = {}
+        fd_map.setdefault(0, 0)
+        fd_map.setdefault(1, 1)
+        fd_map.setdefault(2, 2)
+
         runc_base_cmd = ("runc", f"--root={self.runc_root}")
         ctr_id = str(uuid.uuid4())
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with open(
-                os.path.join(tmp_dir, "config.json"), "w", encoding="utf-8"
-            ) as fconfig:
-                json.dump(self.create_config(ctr_id), fconfig)
+        async with contextlib.AsyncExitStack() as exit_stack:
+            tmp_dir = await exit_stack.enter_async_context(
+                wrap_sync_cm(tempfile.TemporaryDirectory())
+            )
 
-            supervisor_args = []
+            def _sync_write_config():
+                with open(
+                    os.path.join(tmp_dir, "config.json"), "w", encoding="utf-8"
+                ) as fconfig:
+                    json.dump(self.create_config(ctr_id), fconfig)
+
+            await asyncio.get_running_loop().run_in_executor(None, _sync_write_config)
+
+            supervisor_args = [
+                sys.executable,
+                "-m",
+                "sourcerunner.supervisor",
+                f"--runc_root={self.runc_root}",
+                tmp_dir,
+                ctr_id,
+            ]
+
+            nfds = [-1, -1, -1]
+            for fd, fd_desc in fd_map.items():
+                match fd_desc:
+                    case int():
+                        if 1 <= fd_desc <= 2:
+                            # Protect stdout/stderr
+                            if nfds[fd_desc] == -1:
+                                nfds[fd_desc] = await exit_stack.enter_async_context(wrap_sync_cm(_dup_fd(1)))
+                            fd_desc = nfds[fd_desc]
+                        supervisor_args.append(f"--fd-remap={fd}:{fd_desc}")
+                    case ((str() as path, bool() as write)):
+                        if write:
+                           supervisor_args.append( f"--fd-write-file={fd}:{path}")
+                        else:
+                           supervisor_args.append( f"--fd-write-file={fd}:{path}")
+
             if self.timeout_cpu is not None:
                 supervisor_args.append(f"--timeout-cpu={self.timeout_cpu}")
             if self.timeout_wall is not None:
                 supervisor_args.append(f"--timeout-wall={self.timeout_wall}")
 
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "sourcerunner.supervisor",
-                    f"--runc_root={self.runc_root}",
-                    "--fd-read-file=0:/dev/null",
-                    f"--fd-write-file=1:{os.path.join(tmp_dir, "stdout")}",
-                    f"--fd-write-file=2:{os.path.join(tmp_dir, "stderr")}",
-                    tmp_dir,
-                    ctr_id,
-                    *supervisor_args,
-                ],
-                stdout=subprocess.PIPE,
-                check=True,
+            def child_setup():
+                fd_want = {1, 2}
+                for nfd in nfds:
+                    if nfd != -1:
+                        fd_want.add(nfd)
+                for fd_desc in fd_map.values():
+                    fd_want.add(fd_desc)
+
+                fd_last = 0
+                for fd in sorted(fd_want):
+                    if fd_last != fd:
+                        os.closerange(fd_last, fd)
+                    fd_last = fd + 1
+                
+                fd_max = os.sysconf("SC_OPEN_MAX")
+                os.closerange(fd_last, fd_max)
+
+            proc = await asyncio.create_subprocess_exec(
+                *supervisor_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                preexec_fn=child_setup,
+                close_fds=False,
             )
 
-            result = json.loads(result.stdout)
-            with open(os.path.join(tmp_dir, "stdout"), "r") as fstdout:
-                print(fstdout.read())
-            with open(os.path.join(tmp_dir, "stderr"), "r") as fstderr:
-                print(fstderr.read())
-            return result
+            for fd in close_fds:
+                print("CLOSE", fd)
+                os.close(fd)
+
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    proc.returncode, supervisor_args, output=stdout
+                )
+            sys.stderr.buffer.write(stderr + b'\n')
+
+            return json.loads(stdout)
