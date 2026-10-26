@@ -1,0 +1,18 @@
+languages:
+  c++:
+    runner: cpp
+    extension: cpp
+    build:
+    - g++
+    - -O2
+    - solution.cpp
+    - -osolution
+    - -DONLINE_JUDGE
+    run:
+    - /solution/solution
+  python3:
+    runner: python3
+    extension: py
+    run:
+    - python3
+    - /solution/solution.py

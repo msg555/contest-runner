@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import copy
@@ -5,11 +7,13 @@ import ctypes
 import json
 import os
 import re
-import subprocess
+import socket
 import sys
 import tempfile
 import uuid
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Literal, Mapping
+
+from pydantic import BaseModel
 
 CGROUP_ROOT = "/sys/fs/cgroup"
 CGROUP_MEMORY_PEAK = "memory.peak"
@@ -21,16 +25,39 @@ BASE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "runc-base-config.jso
 IGNORE_PARTITION_NAME = re.compile(r"^(loop|ram|zram|sr|nbd|fd)\d+$")
 
 
-@contextlib.contextmanager
-def _dup_fd(fd: int):
-    nfd = -1
-    try:
-        nfd = os.dup(fd)
-        os.set_inheritable(nfd, True)
-        yield nfd
-    finally:
-        if nfd != -1:
-            os.close(nfd)
+class FDContainer:
+    def __init__(self, fd: int, *, set_inheritable: bool = True) -> None:
+        self.fd = fd
+        self.closed = False
+        if set_inheritable:
+            os.set_inheritable(fd, True)
+
+    @classmethod
+    def pipe(cls) -> tuple["FDContainer", "FDContainer"]:
+        p = os.pipe()
+        return (cls(p[0]), cls(p[1]))
+
+    @classmethod
+    def socketpair(cls) -> tuple["FDContainer", "FDContainer"]:
+        p = socket.socketpair()
+        return (cls(p[0].fileno()), cls(p[1].fileno()))
+
+    @classmethod
+    def dup(cls, fd: int | FDContainer) -> "FDContainer":
+        if isinstance(fd, FDContainer):
+            fd = fd.fd
+        return cls(os.dup(fd))
+
+    def __enter__(self):
+        return self.fd
+
+    def __exit__(self, exc_type, exc_value, exc_tb) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if not self.closed:
+            os.close(self.fd)
+            self.closed = True
 
 
 @contextlib.asynccontextmanager
@@ -40,6 +67,22 @@ async def wrap_sync_cm(cm):
         yield await loop.run_in_executor(None, cm.__enter__)
     finally:
         await loop.run_in_executor(None, cm.__exit__, *sys.exc_info())
+
+
+class RuncResult(BaseModel):
+    exit_type: Literal["normal", "killed", "oom", "signal", "unknown", "supervisor"]
+    error: str | None = None
+    kill_reason: str | None = None
+    time_cpu: float
+    time_sys: float
+    time_wall: float
+    mem_peak: int
+    signal: int | None = None
+    exit_status: int | None = None
+
+
+class RuncExecutionError(Exception):
+    pass
 
 
 class RuncRunner:
@@ -195,9 +238,9 @@ class RuncRunner:
     async def run(
         self,
         *,
-        fd_map: dict[int, int | tuple[str, bool]] | None = None,
-        close_fds: Iterable[int] = (),
-    ):
+        fd_map: dict[int, int | FDContainer | tuple[str, bool]] | None = None,
+        close_fds: Iterable[FDContainer | int] = (),
+    ) -> RuncResult:
         if fd_map is None:
             fd_map = {}
         fd_map.setdefault(0, 0)
@@ -229,13 +272,15 @@ class RuncRunner:
 
             nfds = [-1, -1, -1]
             for fd, fd_desc in fd_map.items():
+                if isinstance(fd_desc, FDContainer):
+                    fd_desc = fd_desc.fd
                 match fd_desc:
                     case int():
                         if 1 <= fd_desc <= 2:
                             # Protect stdout/stderr
                             if nfds[fd_desc] == -1:
-                                nfds[fd_desc] = await exit_stack.enter_async_context(
-                                    wrap_sync_cm(_dup_fd(1))
+                                nfds[fd_desc] = exit_stack.enter_context(
+                                    FDContainer.dup(fd_desc)
                                 )
                             fd_desc = nfds[fd_desc]
                         supervisor_args.append(f"--fd-remap={fd}:{fd_desc}")
@@ -256,10 +301,13 @@ class RuncRunner:
                     if nfd != -1:
                         fd_want.add(nfd)
                 for fd_desc in fd_map.values():
-                    fd_want.add(fd_desc)
+                    if isinstance(fd_desc, int):
+                        fd_want.add(fd_desc)
+                    elif isinstance(fd_desc, FDContainer):
+                        fd_want.add(fd_desc.fd)
 
                 fd_last = 0
-                for fd in sorted(fd_want):
+                for fd in sorted(list(fd_want)):
                     if fd_last != fd:
                         os.closerange(fd_last, fd)
                     fd_last = fd + 1
@@ -275,16 +323,27 @@ class RuncRunner:
                 close_fds=False,
             )
 
-            for fd in close_fds:
-                print("CLOSE", fd)
-                os.close(fd)
+            for fd_to_close in close_fds:
+                if isinstance(fd_to_close, FDContainer):
+                    fd_to_close.close()
+                else:
+                    os.close(fd_to_close)
 
             stdout, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(
-                    proc.returncode, supervisor_args, output=stdout  # type: ignore
-                )
             sys.stderr.buffer.write(stderr + b"\n")
+            if proc.returncode != 0:
+                raise RuncExecutionError("supervisor processor failed unexpectedly")
 
-            return json.loads(stdout)
+            try:
+                result = RuncResult.model_validate_json(stdout)
+            except ValueError as exc:
+                raise RuncExecutionError(
+                    "got unexpected data format back from supervisor"
+                ) from exc
+
+            if result.exit_type == "supervisor":
+                raise RuncExecutionError(
+                    f"supervisor failed unexpectedly with error: {result.error}"
+                )
+
+            return result

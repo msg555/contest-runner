@@ -13,8 +13,8 @@ FROM {{ vars.runner_source_image }} AS base-internal-runner
 
 RUN groupadd -g 1000 taskrun \
  && useradd -u 1000 -g 1000 taskrun \
- && mkdir -p /task \
- && chown -R taskrun:taskrun /task
+ && mkdir -p /task /solution \
+ && chown -R taskrun:taskrun /task /solution
 
 
 ###############################################################################
@@ -69,7 +69,7 @@ COPY --from=base-diff-calculator-{{ runner_name }} /diff /runners/{{ runner_name
 {% endfor -%}
 
 RUN apt update \
- && apt install -y curl uidmap vim python3 python3-pip sudo \
+ && apt install -y curl uidmap vim python3 python3-venv python3-pip sudo \
  && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LO https://github.com/opencontainers/runc/releases/download/v1.3.6/runc.amd64 \
@@ -80,6 +80,12 @@ RUN groupadd -g 1000 taskrun-external \
  && useradd -u 1000 -g 1000 taskrun-external \
  && echo 'taskrun-external:100000:65536' > /etc/subuid \
  && echo 'taskrun-external:100000:65536' > /etc/subgid
+
+COPY requirements.txt /venv/requirements.txt
+RUN python3 -m venv /venv/ \
+ && PATH="/venv/bin/:${PATH}" pip install -r /venv/requirements.txt
+ENV PATH=/venv/bin:${PATH}
+
 
 ###############################################################################
 # Top level source-runner image

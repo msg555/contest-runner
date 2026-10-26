@@ -6,7 +6,6 @@ import logging
 import os
 import select
 import subprocess
-import sys
 import time
 from typing import Any
 
@@ -66,6 +65,7 @@ def wait_ctr(
     pid_fd = os.pidfd_open(pid)
     ep.register(pid_fd, select.EPOLLIN)
 
+    error = None
     kill_reason = None
     exit_time_wall = None
     try:
@@ -76,6 +76,7 @@ def wait_ctr(
                 cpu = cgroup_read_dict(ctr_id, "cpu.stat", None)
                 cpu_time_rem = timeout_cpu - cpu["usage_usec"] * 1e-6
                 if cpu_time_rem < 0:
+                    error = "execution timed out"
                     kill_reason = "TIMEOUT_CPU"
                     break
 
@@ -87,6 +88,7 @@ def wait_ctr(
             if timeout_wall is not None:
                 wall_time_rem = timeout_wall - (time.perf_counter() - time_start)
                 if wall_time_rem < 0:
+                    error = "execution timed out"
                     kill_reason = "TIMEOUT_WALL"
                     break
 
@@ -122,15 +124,18 @@ def wait_ctr(
     elif st.si_code == os.CLD_KILLED:
         if mem_events["oom"]:
             exit_type = "oom"
+            error = "memory limit exceeded"
         else:
             exit_type = "signal"
             signal = st.si_status
+            error = "exited due to unhandled signal"
     else:
-        exit_type = "Unknown"
+        exit_type = "unknown"
 
     cpu = cgroup_read_dict(ctr_id, "cpu.stat", None)
     return {
         "exit_type": exit_type,
+        "error": error,
         "kill_reason": kill_reason,
         "time_cpu": cpu["usage_usec"] * 1e-6,
         "time_sys": cpu["system_usec"] * 1e-6,
@@ -315,8 +320,6 @@ def run_supervisor():
         fd_from = int(parts[1])
         fd_remap[fd_to] = fd_from
 
-    sys.stderr.write(json.dumps(fd_remap, indent=2))
-
     return run(
         args.runc_root,
         args.dir,
@@ -331,11 +334,14 @@ def run_supervisor():
 def main():
     try:
         result = run_supervisor()
-        result["supervisor_success"] = True
     except Exception as exc:  # pylint: disable=broad-exception-caught
         result = {
-            "supervisor_success": False,
+            "exit_type": "supervisor",
             "error": str(exc),
+            "time_cpu": 0.0,
+            "time_sys": 0.0,
+            "time_wall": 0.0,
+            "mem_peak": 0,
         }
     print(json.dumps(result, indent=2))
 

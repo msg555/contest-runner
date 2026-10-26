@@ -4,3 +4,6 @@ mypy ~= 2.4
 pylint ~= 4.1
 pytest ~= 9.1
 pytest-asyncio ~= 1.4
+tplbuild
+
+types-PyYAML

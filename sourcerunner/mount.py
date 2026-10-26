@@ -56,7 +56,8 @@ class TaskWorkspace:
         def _sync_setup_dir():
             os.mkdir(self.temp_dir)
             os.mkdir(self.upper_dir)
-            os.mkdir(self.work_dir)
+            if not self.read_only:
+                os.mkdir(self.work_dir)
             os.mkdir(self.mount_dir)
 
         def _sync_cleanup_dir():
@@ -75,7 +76,7 @@ class TaskWorkspace:
         else:
             cmd.append(f"-olowerdir={':'.join(self.lower_dirs)}")
             cmd.append(f"-oupperdir={self.upper_dir}")
-        cmd.append(f"-oworkdir={self.work_dir}")
+            cmd.append(f"-oworkdir={self.work_dir}")
         cmd.append(self.mount_dir)
 
         proc = await asyncio.create_subprocess_exec(*cmd)
@@ -97,7 +98,6 @@ class TaskWorkspace:
         if dst_path.startswith("/"):
             dst_path = dst_path[1:]
         dst_path = os.path.join(self.mount_dir, dst_path)
-        print(src_path, dst_path, self.mount_dir)
         proc = await asyncio.create_subprocess_exec(
             "mount", "--bind", "--", src_path, dst_path
         )
@@ -108,7 +108,7 @@ class TaskWorkspace:
         try:
             if read_only:
                 proc = await asyncio.create_subprocess_exec(
-                    "mount", "-oremount,ro.bind", "--", dst_path
+                    "mount", "-oremount,ro,bind", "--", dst_path
                 )
                 result = await proc.wait()
                 if result:
