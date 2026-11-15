@@ -240,12 +240,15 @@ class RuncRunner:
         *,
         fd_map: dict[int, int | FDContainer | tuple[str, bool]] | None = None,
         close_fds: Iterable[FDContainer | int] = (),
+        inherit_stdio: bool = True,
     ) -> RuncResult:
         if fd_map is None:
             fd_map = {}
-        fd_map.setdefault(0, 0)
-        fd_map.setdefault(1, 1)
-        fd_map.setdefault(2, 2)
+
+        if inherit_stdio:
+            fd_map.setdefault(0, 0)
+            fd_map.setdefault(1, 1)
+            fd_map.setdefault(2, 2)
 
         ctr_id = str(uuid.uuid4())
         async with contextlib.AsyncExitStack() as exit_stack:

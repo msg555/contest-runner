@@ -6,7 +6,7 @@ import os
 import shutil
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _check_simple_path_element(path: str) -> None:
@@ -23,8 +23,8 @@ class LanguageConfig(BaseModel):
     extension: str
     build: list[str] | None = None
     run: list[str]
-    build_timeout: float = 5.0
-    build_mem_limit_bytes: int = 128 * 2**20
+    build_timeout: float = 10.0
+    build_mem_limit_bytes: int = 512 * 2**20
 
 
 class LanguageManifest(BaseModel):
@@ -34,28 +34,59 @@ class LanguageManifest(BaseModel):
 class SourceDefinition(BaseModel):
     language: str
     file: str
+    extra_files: dict[str, str] = {}
 
-    def post_validate(self, langs: LanguageManifest, task: JudgeTask) -> None:
-        if self.language not in langs.languages:
+    def post_validate(self, task: JudgeTask, *, langs: LanguageManifest) -> None:
+        lang = langs.languages.get(self.language)
+        if lang is None:
             raise ValueError(f"Unknown language {repr(self.language)} in source")
         if self.file not in task.files:
             raise ValueError(f"Unknown file {repr(self.file)} in source")
+        for file_path, file in self.extra_files.items():
+            _check_simple_path_element(file_path)
+            if file_path == f"solution.{lang.extension}":
+                raise ValueError(f"extra_file name aliases with source file name")
+            if file not in task.files:
+                raise ValueError(f"Unknown file in extra_files {repr(file)} in source")
 
 
 class FileReadDefinition(BaseModel):
     type: Literal["read"] = "read"
     file: str
 
-    def post_validate(self, task: JudgeTask) -> None:
+    def post_validate(self, task: JudgeTask, **context) -> None:
         if self.file not in task.files:
             raise ValueError(f"Unknown file {repr(self.file)} in file read descriptor")
+
+
+class FileRunReadDefinition(BaseModel):
+    type: Literal["run"] = "run"
+    name: str
+    stage_index: int
+    run_index: int = 0
+    ignore_if_missing: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def valid_file_name(cls, v: str) -> str:
+        _check_simple_path_element(v)
+        return v
+
+    def post_validate(self, task: JudgeTask, *, stage_index: int, **context) -> None:
+        if self.stage_index < 0 or self.stage_index >= stage_index:
+            raise ValueError("Stage index must be an earlier index")
+        if self.run_index < 0 or self.run_index >= len(
+            task.stages[self.stage_index].runs
+        ):
+            raise ValueError("Invalid run_index for stage")
 
 
 class FileWriteDefinition(BaseModel):
     type: Literal["write"] = "write"
     name: str
+    export: bool = False
 
-    def post_validate(self, task: JudgeTask) -> None:
+    def post_validate(self, task: JudgeTask, **context) -> None:
         pass
 
 
@@ -64,12 +95,27 @@ class PipeDefinition(BaseModel):
     name: str
     mode: Literal["read", "write", "duplex"]
 
-    def post_validate(self, task: JudgeTask) -> None:
+    def post_validate(self, task: JudgeTask, **context) -> None:
         pass
 
 
+class GeneratedDefinition(BaseModel):
+    type: Literal["generated"] = "generated"
+    stage_index: int
+    run_index: int
+    output_name: str
+
+    def post_validate(self, task: JudgeTask, **context) -> None:
+        pass
+
+
+FileInput = Annotated[
+    FileReadDefinition | FileRunReadDefinition,
+    Field(discriminator="type"),
+]
+
 FileDescriptor = Annotated[
-    FileReadDefinition | FileWriteDefinition | PipeDefinition,
+    FileInput | FileWriteDefinition | PipeDefinition,
     Field(discriminator="type"),
 ]
 
@@ -80,37 +126,38 @@ class RunDefinition(BaseModel):
     memory_limit: int
     output_limit: int  # TODO
     fd_map: dict[int, FileDescriptor] = {}
-    files_in: dict[str, str] = {}
-    files_out: dict[str, str] = {}
+    files_in: dict[str, FileInput] = {}
+    files_out: dict[str, FileWriteDefinition] = {}
+    args: list[str] = []
 
-    def post_validate(self, task: JudgeTask) -> None:
+    def post_validate(self, task: JudgeTask, **context) -> None:
         if self.source not in task.sources:
             raise ValueError(f"Unknown source {repr(self.source)} in run")
         output_names = set()
         for fdesc in self.fd_map.values():
-            fdesc.post_validate(task)
+            fdesc.post_validate(task, **context)
             if isinstance(fdesc, FileWriteDefinition):
                 if fdesc.name in output_names:
                     raise ValueError("Duplicate output name {repr(fdesc.name)} in run")
                 output_names.add(fdesc.name)
-        for output_name, path in self.files_out.items():
-            if output_name in output_names:
-                raise ValueError("Duplicate output name {repr(fdesc.name)} in run")
-            output_names.add(output_name)
+        for path, file_out in self.files_out.items():
+            file_out.post_validate(task, **context)
             _check_simple_path_element(path)
-        for filename, file in self.files_in.items():
+            if file_out.name in output_names:
+                raise ValueError("Duplicate output name {repr(fdesc.name)} in run")
+            output_names.add(file_out.name)
+        for filename, fdesc in self.files_in.items():
             _check_simple_path_element(filename)
-            if file not in task.files:
-                raise ValueError(f"Unknown file {repr(file)} in files_in")
+            fdesc.post_validate(task, **context)
 
 
 class StageDefinition(BaseModel):
     runs: list[RunDefinition]
 
-    def post_validate(self, task: JudgeTask) -> None:
+    def post_validate(self, task: JudgeTask, **context) -> None:
         pipe_map: dict[str, list[PipeDefinition]] = {}
-        for run in self.runs:
-            run.post_validate(task)
+        for run_index, run in enumerate(self.runs):
+            run.post_validate(task, run_index=run_index, **context)
             for fdesc in run.fd_map.values():
                 if isinstance(fdesc, PipeDefinition):
                     pipe_map.setdefault(fdesc.name, []).append(fdesc)
@@ -195,8 +242,8 @@ class JudgeTask(BaseModel):
     sources: dict[str, SourceDefinition]
     stages: list[StageDefinition]
 
-    def post_validate(self, langs: LanguageManifest) -> None:
+    def post_validate(self, langs: LanguageManifest, **context) -> None:
         for source in self.sources.values():
-            source.post_validate(langs, self)
-        for stage in self.stages:
-            stage.post_validate(self)
+            source.post_validate(self, langs=langs, **context)
+        for stage_index, stage in enumerate(self.stages):
+            stage.post_validate(self, stage_index=stage_index, **context)
