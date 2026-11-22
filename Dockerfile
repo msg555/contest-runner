@@ -69,7 +69,7 @@ COPY --from=base-diff-calculator-{{ runner_name }} /diff /runners/{{ runner_name
 {% endfor -%}
 
 RUN apt update \
- && apt install -y curl uidmap vim python3 python3-venv python3-pip sudo \
+ && apt install -y curl uidmap vim python3 python3-venv python3-pip sudo jq \
  && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LO https://github.com/opencontainers/runc/releases/download/v1.3.6/runc.amd64 \

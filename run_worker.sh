@@ -2,12 +2,17 @@
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# CPU the whole worker container (and every task container it starts) is
+# pinned to, for fair and consistent timing.
+SOURCERUNNER_CPU="${SOURCERUNNER_CPU:-1}"
+
   #--security-opt seccomp="${PWD}/runner-seccomp.json" \
 # TODO: Can we get an appropriate apparmor profile?
 
 docker run \
   --user=taskrun-external \
   --cap-add SYS_ADMIN \
+  --cpuset-cpus="${SOURCERUNNER_CPU}" \
   --security-opt seccomp=./runner-seccomp.json \
   --security-opt apparmor=nautilus \
   --security-opt systempaths=unconfined \

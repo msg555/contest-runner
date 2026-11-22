@@ -4,9 +4,12 @@ import abc
 import asyncio
 import os
 import shutil
-from typing import Annotated, Literal
+import string
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from sourcerunner.runc import RuncResult
 
 
 def _check_simple_path_element(path: str) -> None:
@@ -16,6 +19,15 @@ def _check_simple_path_element(path: str) -> None:
         )
     if path in ("", ".", ".."):
         raise ValueError(f"Simple path element {repr(path)} is invalid")
+
+
+def _check_run_ref(
+    task: JudgeTask, ref_stage_index: int, ref_run_index: int, current_stage: int
+) -> None:
+    if ref_stage_index < 0 or ref_stage_index >= current_stage:
+        raise ValueError("Stage index must be an earlier index")
+    if ref_run_index < 0 or ref_run_index >= len(task.stages[ref_stage_index].runs):
+        raise ValueError("Invalid run_index for stage")
 
 
 class LanguageConfig(BaseModel):
@@ -73,12 +85,38 @@ class FileRunReadDefinition(BaseModel):
         return v
 
     def post_validate(self, task: JudgeTask, *, stage_index: int, **context) -> None:
-        if self.stage_index < 0 or self.stage_index >= stage_index:
-            raise ValueError("Stage index must be an earlier index")
-        if self.run_index < 0 or self.run_index >= len(
-            task.stages[self.stage_index].runs
-        ):
-            raise ValueError("Invalid run_index for stage")
+        _check_run_ref(task, self.stage_index, self.run_index, stage_index)
+
+
+class RunRef(BaseModel):
+    stage_index: int
+    run_index: int = 0
+
+    def post_validate(self, task: JudgeTask, *, stage_index: int, **context) -> None:
+        _check_run_ref(task, self.stage_index, self.run_index, stage_index)
+
+
+class FileRunStatusDefinition(BaseModel):
+    """
+    Provides the status of an earlier run. Without `format` the contents are
+    the RunStatus as JSON. With `format` the contents are the format string
+    rendered over the fields in STATUS_FORMAT_FIELDS plus a trailing newline.
+    """
+
+    type: Literal["status"] = "status"
+    stage_index: int
+    run_index: int = 0
+    format: str | None = None
+
+    @field_validator("format")
+    @classmethod
+    def valid_format(cls, v: str | None) -> str | None:
+        if v is not None:
+            _check_status_format(v)
+        return v
+
+    def post_validate(self, task: JudgeTask, *, stage_index: int, **context) -> None:
+        _check_run_ref(task, self.stage_index, self.run_index, stage_index)
 
 
 class FileWriteDefinition(BaseModel):
@@ -110,7 +148,7 @@ class GeneratedDefinition(BaseModel):
 
 
 FileInput = Annotated[
-    FileReadDefinition | FileRunReadDefinition,
+    FileReadDefinition | FileRunReadDefinition | FileRunStatusDefinition,
     Field(discriminator="type"),
 ]
 
@@ -129,22 +167,25 @@ class RunDefinition(BaseModel):
     files_in: dict[str, FileInput] = {}
     files_out: dict[str, FileWriteDefinition] = {}
     args: list[str] = []
+    depends_on: list[RunRef] = []
 
     def post_validate(self, task: JudgeTask, **context) -> None:
         if self.source not in task.sources:
             raise ValueError(f"Unknown source {repr(self.source)} in run")
+        for ref in self.depends_on:
+            ref.post_validate(task, **context)
         output_names = set()
         for fdesc in self.fd_map.values():
             fdesc.post_validate(task, **context)
             if isinstance(fdesc, FileWriteDefinition):
                 if fdesc.name in output_names:
-                    raise ValueError("Duplicate output name {repr(fdesc.name)} in run")
+                    raise ValueError(f"Duplicate output name {repr(fdesc.name)} in run")
                 output_names.add(fdesc.name)
         for path, file_out in self.files_out.items():
             file_out.post_validate(task, **context)
             _check_simple_path_element(path)
             if file_out.name in output_names:
-                raise ValueError("Duplicate output name {repr(fdesc.name)} in run")
+                raise ValueError(f"Duplicate output name {repr(file_out.name)} in run")
             output_names.add(file_out.name)
         for filename, fdesc in self.files_in.items():
             _check_simple_path_element(filename)
@@ -231,14 +272,14 @@ class InlineFile(FileInputBase):
         await asyncio.get_running_loop().run_in_executor(None, sync_write)
 
 
-FileInput = Annotated[
+FileDataInput = Annotated[
     FileSystemFile | InlineFile,
     Field(discriminator="type"),
 ]
 
 
 class JudgeTask(BaseModel):
-    files: dict[str, FileInput]
+    files: dict[str, FileDataInput]
     sources: dict[str, SourceDefinition]
     stages: list[StageDefinition]
 
@@ -247,3 +288,91 @@ class JudgeTask(BaseModel):
             source.post_validate(self, langs=langs, **context)
         for stage_index, stage in enumerate(self.stages):
             stage.post_validate(self, stage_index=stage_index, **context)
+
+
+class BuildStatus(BaseModel):
+    source: str
+    state: Literal["success", "failed", "error"]
+    result: RuncResult | None = None
+    log: str | None = None
+    error: str | None = None
+
+
+class RunStatus(BaseModel):
+    stage_index: int
+    run_index: int
+    state: Literal["success", "failed", "skipped", "error"]
+    reason: str | None = None
+    result: RuncResult | None = None
+
+    def format_fields(self) -> dict[str, Any]:
+        result = self.result
+        return {
+            "state": self.state,
+            "reason": self.reason,
+            "exit_type": result.exit_type if result else None,
+            "exit_status": result.exit_status if result else None,
+            "signal": result.signal if result else None,
+            "error": result.error if result else None,
+            "kill_reason": result.kill_reason if result else None,
+            "time_cpu": result.time_cpu if result else None,
+            "time_sys": result.time_sys if result else None,
+            "time_wall": result.time_wall if result else None,
+            "mem_peak": result.mem_peak if result else None,
+        }
+
+
+class TaskResult(BaseModel):
+    builds: dict[str, BuildStatus]
+    runs: list[list[RunStatus]]
+
+
+# Representative values for each status format field, used to check format
+# specs at validation time.
+_STATUS_FORMAT_SAMPLE: dict[str, Any] = {
+    "state": "success",
+    "reason": "reason",
+    "exit_type": "normal",
+    "exit_status": 0,
+    "signal": 9,
+    "error": "error",
+    "kill_reason": "TIMEOUT_CPU",
+    "time_cpu": 0.5,
+    "time_sys": 0.5,
+    "time_wall": 0.5,
+    "mem_peak": 1024,
+}
+STATUS_FORMAT_FIELDS = frozenset(_STATUS_FORMAT_SAMPLE)
+STATUS_MISSING_VALUE = "-"
+
+
+class _StatusFormatter(string.Formatter):
+    def format_field(self, value: Any, format_spec: str) -> Any:
+        if value is None:
+            return STATUS_MISSING_VALUE
+        return super().format_field(value, format_spec)
+
+
+def _check_status_format(fmt: str) -> None:
+    for _, field_name, format_spec, conversion in string.Formatter().parse(fmt):
+        if field_name is None:
+            continue
+        if field_name not in STATUS_FORMAT_FIELDS:
+            raise ValueError(
+                f"Unknown status format field {repr(field_name)}; expected one of "
+                f"{', '.join(sorted(STATUS_FORMAT_FIELDS))}"
+            )
+        if conversion:
+            raise ValueError("Conversions are not supported in status formats")
+        if format_spec and "{" in format_spec:
+            raise ValueError("Nested fields are not supported in status formats")
+    try:
+        _StatusFormatter().vformat(fmt, (), _STATUS_FORMAT_SAMPLE)
+    except ValueError as exc:
+        raise ValueError(f"Invalid status format {repr(fmt)}: {exc}") from exc
+
+
+def render_run_status(status: RunStatus, fmt: str | None) -> str:
+    if fmt is None:
+        return status.model_dump_json() + "\n"
+    return _StatusFormatter().vformat(fmt, (), status.format_fields()) + "\n"

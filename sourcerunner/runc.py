@@ -40,7 +40,7 @@ class FDContainer:
     @classmethod
     def socketpair(cls) -> tuple["FDContainer", "FDContainer"]:
         p = socket.socketpair()
-        return (cls(p[0].fileno()), cls(p[1].fileno()))
+        return (cls(p[0].detach()), cls(p[1].detach()))
 
     @classmethod
     def dup(cls, fd: int | FDContainer) -> "FDContainer":
@@ -153,17 +153,15 @@ class RuncRunner:
             "limit": self.mem_limit_bytes,
             "reservation": self.mem_limit_bytes,
             "swap": self.mem_limit_bytes,
-            "kernel": -1,
-            "kernelTCP": -1,
             "swappiness": 0,
             "disableOOMKiller": False,
         }
 
-        # Fix to max 1 CPU-second/wall-second
+        # Fix to max 1 CPU-second/wall-second. No cpuset is set: containers
+        # inherit the worker's CPU pinning (see run_worker.sh).
         config["linux"]["resources"]["cpu"] = {
             "quota": 100000,
             "period": 100000,
-            "cpus": "1",
         }
         config["linux"]["resources"]["pids"] = {
             "limit": 10000,  # self.pid_limit,
@@ -291,7 +289,7 @@ class RuncRunner:
                         if write:
                             supervisor_args.append(f"--fd-write-file={fd}:{path}")
                         else:
-                            supervisor_args.append(f"--fd-write-file={fd}:{path}")
+                            supervisor_args.append(f"--fd-read-file={fd}:{path}")
 
             if self.timeout_cpu is not None:
                 supervisor_args.append(f"--timeout-cpu={self.timeout_cpu}")
@@ -333,7 +331,8 @@ class RuncRunner:
                     os.close(fd_to_close)
 
             stdout, stderr = await proc.communicate()
-            sys.stderr.buffer.write(stderr + b"\n")
+            if stderr:
+                sys.stderr.buffer.write(stderr + b"\n")
             if proc.returncode != 0:
                 raise RuncExecutionError("supervisor processor failed unexpectedly")
 

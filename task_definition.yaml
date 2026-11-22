@@ -41,6 +41,8 @@ stages:
         export: true
 - runs:
   - source: checker
+    depends_on:
+    - stage_index: 0
     time_limit: 1
     memory_limit: 134217728
     output_limit: 134217728
@@ -60,4 +62,11 @@ stages:
       answer:
         type: read
         file: answer0
+      sol_status:
+        type: status
+        stage_index: 0
+      sol_verdict:
+        type: status
+        stage_index: 0
+        format: "{exit_type} {exit_status}"
     args: [input, output, answer]

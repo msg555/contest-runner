@@ -6,7 +6,7 @@
         "linux/amd64": "sha256:17b967fa748a2929eb2682018a9d0e335aeebff3963469e901b67544bd01be49"
       },
       "3.14": {
-        "linux/amd64": "sha256:608322fe51a9b889eee5ed6015c854e77dc44d00c116435f56b69bf6f14c88f4"
+        "linux/amd64": "sha256:e683e47faa4ba2951ef04ca609b595e968c49045eacdb765b7ff10165a5fde50"
       }
     },
     "library/debian": {
@@ -14,7 +14,7 @@
         "linux/amd64": "sha256:6f9377128fde3e69e251d0b3c5a7f85f6a20b92ecb81708742c1e153a5c9ce3f"
       },
       "trixie-slim": {
-        "linux/amd64": "sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c"
+        "linux/amd64": "sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392"
       }
     },
     "library/ubuntu": {
@@ -27,44 +27,44 @@
     "default": {
       "base-runner-cpp": {
         "linux/amd64": {
-          "build_hash": "961664a266c443c9fbbf9c46bd9dc24253b12ed707e3658547c7d02a5f26dcc5",
-          "image_digest": "sha256:a7a576395150c9ee1076ef84a20a9991b357c1b81625ea6186d426308b05da69"
+          "build_hash": "534a1247753aecefc9eae10db047080e08c96376e98d3eb6396f0a870a71768a",
+          "image_digest": "sha256:a7fcc20b65c0e2ad20a8321b0800e14e1bfdd16afe9222290ecfc175473eda95"
         }
       },
       "base-internal-runner": {
         "linux/amd64": {
-          "build_hash": "5f9cdc7a23950a81ce5bdb54fab9b2e398526aab8cb56a4aaa3b05cd751e0136",
-          "image_digest": "sha256:d5862fdf028f3e92c612bdde90e506684dbc852ac8d8ffd25cfcd79f7c5a4745"
+          "build_hash": "100e64f3ac76bdb585669c64b01e3dacd7b8090d0330a8748289c3614ab8082c",
+          "image_digest": "sha256:190b4b3e71153bb51cd41474bf573a07396daa639ad088d8fced086009e55697"
         }
       },
       "base-runner-python3": {
         "linux/amd64": {
-          "build_hash": "a9502e8872adb9b55b172c88aae00bf658b245df72fbd2e8cfb965135952f606",
-          "image_digest": "sha256:f63d15364a34c68292b63dc2eed3171ade8510c7bc02541b2bb1ba3914387d19"
+          "build_hash": "44dfb8ae5ad1cef31686759fb9b63ef0957a4d88ec9b66e7cc868d9c466d92f1",
+          "image_digest": "sha256:b382335755824aa981deeaed79be9d893fe4435ca926957524ade3c21476e24e"
         }
       },
       "base-diff-calculator": {
         "linux/amd64": {
-          "build_hash": "fa1a182ac0a20a2146d38812d240b07c93b99bf3e5f37e14737d6534081d7815",
-          "image_digest": "sha256:9bd4b4187f8e37ac98a2c6a42fe1aff53abda76aec6b2be1ac2511db7c58a50f"
+          "build_hash": "8b39f54bb4deba6394e8a10c579817b1d772be10da28755cb43a180cbc7fa261",
+          "image_digest": "sha256:e791b3e5d716e64435d16376ea24968c306d178f38336bf99bc2b3ad00b141f5"
         }
       },
       "base-source-runner": {
         "linux/amd64": {
-          "build_hash": "00cea899a9b6e728894f8226fb25f1c3c694dd04105b590143c11a3fe3013c65",
-          "image_digest": "sha256:19e714dcdee2ad53ee3fd7bfb91c2a83c9ae9a6b51fad8da01a698c4a3c987c1"
+          "build_hash": "486d9c242a3c4dac624f03147b0ebd2c0dd05cffe0ca3daa7a1e6eab72280efe",
+          "image_digest": "sha256:d8dc1ec7ad6787c1c96ef0fa316454f330132a282ec1a7add52f658f963ba636"
         }
       },
       "base-diff-calculator-python3": {
         "linux/amd64": {
-          "build_hash": "a65ddb7018da9cd97451450314ac2db4cfd29823aac2ee002ee999df67a2d3c7",
-          "image_digest": "sha256:34f6f2b3e6768bd12970348e893de6700dd182cc13ad7580339b4779246bd3f1"
+          "build_hash": "8ed149d50e11aa65bb3203b72effc3f43bc7fd2e75c5b6d02c0317abf678ddaa",
+          "image_digest": "sha256:77dd87c1c87895968632c02a37437f6d0719c0ad3fe5aa4358c429b7d3880736"
         }
       },
       "base-diff-calculator-cpp": {
         "linux/amd64": {
-          "build_hash": "967111267106ba2cea514144a891875c203de44286fcff4ddde743450d9d93f4",
-          "image_digest": "sha256:627b9cb571c1fc2a3982c5078889b878dd7e354dc415c03e73cda5cdc94e75a6"
+          "build_hash": "beb90023288a6d09fd382a311071cb1d7adcfa6d59ab23e2a3edecc04c4ec2c7",
+          "image_digest": "sha256:86be4cb3299b689b52cc4adae858d8dd5a6f607ad03cf7fb61c94636e963cd2f"
         }
       }
     }
