@@ -1,0 +1,63 @@
+files:
+  sol:
+    type: fs
+    path: cpptest/utopiarelationships.cpp
+  input0:
+    type: fs
+    path: cpptest/utopiarelationships.in
+  answer0:
+    type: fs
+    path: cpptest/utopiarelationships.out
+  checker:
+    type: fs
+    path: static/checker.cpp
+  testlib:
+    type: fs
+    path: static/testlib.h
+
+sources:
+  sol:
+    language: c++
+    file: sol
+  checker:
+    language: c++
+    file: checker
+    extra_files:
+      testlib.h: testlib
+
+stages:
+- runs:
+  - source: sol
+    time_limit: 1
+    memory_limit: 134217728
+    output_limit: 134217728
+    fd_map:
+      0:
+        type: read
+        file: input0
+      1: 
+        type: write
+        name: output
+        export: true
+- runs:
+  - source: checker
+    time_limit: 1
+    memory_limit: 134217728
+    output_limit: 134217728
+    fd_map:
+      2:
+        type: write
+        name: result
+        export: true
+    files_in:
+      input:
+        type: read
+        file: input0
+      output:
+        type: run
+        stage_index: 0
+        name: output
+      answer:
+        type: read
+        file: answer0
+    args: [input, output, answer]
